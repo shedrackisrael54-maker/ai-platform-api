@@ -19,7 +19,7 @@ export class FileSyncController {
     return this.fileSyncService.getTree(req.user.id, projectId);
   }
 
-  @Get('*path')
+  @Get(':path(*)')
   read(
     @Req() req: any,
     @Param('projectId') projectId: string,
@@ -28,7 +28,7 @@ export class FileSyncController {
     return this.fileSyncService.readFile(req.user.id, projectId, path);
   }
 
-  @Put('*path')
+  @Put(':path(*)')
   write(
     @Req() req: any,
     @Param('projectId') projectId: string,
@@ -57,7 +57,7 @@ export class FileSyncController {
     );
   }
 
-  @Delete('*path')
+  @Delete(':path(*)')
   remove(
     @Req() req: any,
     @Param('projectId') projectId: string,
