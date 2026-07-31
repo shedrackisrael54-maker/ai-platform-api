@@ -31,13 +31,71 @@ export function parseAndValidateFileOps(raw: unknown): FileOperation[] {
   return ops;
 }
 
+export interface EditOperation {
+  type: 'create_file' | 'update_file' | 'delete_file';
+  path: string;
+  content?: string;
+}
+
 export interface GeneratedFile {
   path: string;
   content: string;
 }
 
+const MAX_EDIT_OPERATIONS = 20;
 const MAX_FILE_COUNT = 30;
 const MAX_FILE_SIZE_BYTES = 200_000;
+
+/**
+ * Validates the operations list returned by the apply_project_changes
+ * tool (used for Milestone 5 chat-based editing - see
+ * edit-project-tool.ts). Deliberately narrower than
+ * parseAndValidateFileOps: no run_command here, since edits only
+ * touch files, never execute arbitrary commands.
+ */
+export function validateEditOperations(
+  raw: unknown,
+  existingPaths: Set<string>,
+): EditOperation[] {
+  if (!Array.isArray(raw)) {
+    throw new Error('Expected an array of operations from the model');
+  }
+  if (raw.length === 0) {
+    throw new Error('Model returned no operations');
+  }
+  if (raw.length > MAX_EDIT_OPERATIONS) {
+    throw new Error(`Too many operations returned (${raw.length} > ${MAX_EDIT_OPERATIONS})`);
+  }
+
+  const ops = raw as EditOperation[];
+
+  for (const op of ops) {
+    if (!['create_file', 'update_file', 'delete_file'].includes(op.type)) {
+      throw new Error(`Invalid operation type: ${op.type}`);
+    }
+    if (typeof op.path !== 'string' || op.path.trim().length === 0) {
+      throw new Error('Each operation must have a non-empty string path');
+    }
+    if (op.path.includes('..') || op.path.startsWith('/')) {
+      throw new Error(`Rejected unsafe path: ${op.path}`);
+    }
+    if (op.type === 'update_file' || op.type === 'delete_file') {
+      if (!existingPaths.has(op.path)) {
+        throw new Error(`Cannot ${op.type} nonexistent path: ${op.path}`);
+      }
+    }
+    if (op.type === 'create_file' || op.type === 'update_file') {
+      if (typeof op.content !== 'string') {
+        throw new Error(`Missing content for ${op.type} on ${op.path}`);
+      }
+      if (Buffer.byteLength(op.content, 'utf8') > MAX_FILE_SIZE_BYTES) {
+        throw new Error(`File too large: ${op.path}`);
+      }
+    }
+  }
+
+  return ops;
+}
 
 /**
  * Validates the file list returned by the create_project_files tool

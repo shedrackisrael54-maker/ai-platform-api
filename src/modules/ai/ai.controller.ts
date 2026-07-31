@@ -1,36 +1,63 @@
-import { Body, Controller, Get, Param, Post, Req } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  ForbiddenException,
+  Get,
+  Inject,
+  NotFoundException,
+  Param,
+  Post,
+  Req,
+} from '@nestjs/common';
+import { SupabaseClient } from '@supabase/supabase-js';
+import { SUPABASE_ADMIN_CLIENT } from '../../supabase/supabase.module';
 import { AiOrchestratorService } from './ai-orchestrator.service';
 
 @Controller('projects/:projectId/chat')
 export class AiController {
-  constructor(private readonly aiOrchestrator: AiOrchestratorService) {}
+  constructor(
+    private readonly aiOrchestrator: AiOrchestratorService,
+    @Inject(SUPABASE_ADMIN_CLIENT) private readonly supabase: SupabaseClient,
+  ) {}
+
+  // Small inline ownership check rather than depending on
+  // ProjectsService here, which would create a circular module
+  // dependency (ProjectsModule already depends on AiModule).
+  private async assertOwnership(userId: string, projectId: string) {
+    const { data, error } = await this.supabase
+      .from('projects')
+      .select('owner_id')
+      .eq('id', projectId)
+      .single();
+    if (error || !data) throw new NotFoundException('Project not found');
+    if (data.owner_id !== userId) {
+      throw new ForbiddenException('You do not have access to this project');
+    }
+  }
 
   @Post()
-  sendMessage(
+  async sendMessage(
     @Req() req: any,
     @Param('projectId') projectId: string,
     @Body() body: { message: string },
   ) {
-    // Returns a jobId immediately; token stream + resulting file
-    // operations are pushed over the realtime gateway.
-    return this.aiOrchestrator.enqueueChatTurn(
-      req.user.id,
-      projectId,
-      body.message,
-    );
+    await this.assertOwnership(req.user.id, projectId);
+    return this.aiOrchestrator.applyChatEdit(projectId, body.message);
   }
 
   @Get('history')
-  history(@Req() req: any, @Param('projectId') projectId: string) {
-    return this.aiOrchestrator.getHistory(req.user.id, projectId);
+  async history(@Req() req: any, @Param('projectId') projectId: string) {
+    await this.assertOwnership(req.user.id, projectId);
+    return this.aiOrchestrator.getHistory(projectId);
   }
 
   @Post(':messageId/regenerate')
-  regenerate(
+  async regenerate(
     @Req() req: any,
     @Param('projectId') projectId: string,
     @Param('messageId') messageId: string,
   ) {
-    return this.aiOrchestrator.regenerate(req.user.id, projectId, messageId);
+    await this.assertOwnership(req.user.id, projectId);
+    return this.aiOrchestrator.regenerate(projectId, messageId);
   }
 }
