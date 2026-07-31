@@ -10,12 +10,31 @@ import { DeploymentProcessor } from './processors/deployment.processor';
     BullModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (config: ConfigService) => ({
-        connection: {
-          host: config.get('redis.host'),
-          port: config.get('redis.port'),
-        },
-      }),
+      useFactory: (config: ConfigService) => {
+        // Railway (and most hosts) provide a single REDIS_URL for
+        // their managed Redis add-on. Local dev instead uses separate
+        // REDIS_HOST/REDIS_PORT values. Support both so the same code
+        // runs unmodified in either environment.
+        const redisUrl = config.get<string>('redis.url');
+        if (redisUrl) {
+          const parsed = new URL(redisUrl);
+          return {
+            connection: {
+              host: parsed.hostname,
+              port: Number(parsed.port),
+              username: parsed.username || undefined,
+              password: parsed.password || undefined,
+              tls: parsed.protocol === 'rediss:' ? {} : undefined,
+            },
+          };
+        }
+        return {
+          connection: {
+            host: config.get('redis.host'),
+            port: config.get('redis.port'),
+          },
+        };
+      },
     }),
     BullModule.registerQueue(
       { name: 'sandbox-boot' },
@@ -31,3 +50,4 @@ import { DeploymentProcessor } from './processors/deployment.processor';
   exports: [BullModule],
 })
 export class QueueModule {}
+
