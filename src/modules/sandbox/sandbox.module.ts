@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { SandboxController } from './sandbox.controller';
 import { SandboxService } from './sandbox.service';
-import { E2bProvider } from './providers/e2b.provider';
+import { DaytonaProvider } from './providers/daytona.provider';
 import { ProjectsModule } from '../projects/projects.module';
 
 @Module({
@@ -9,7 +9,11 @@ import { ProjectsModule } from '../projects/projects.module';
   controllers: [SandboxController],
   providers: [
     SandboxService,
-    { provide: 'ISandboxProvider', useClass: E2bProvider },
+    // Sandbox provider is swappable behind ISandboxProvider - see
+    // sandbox-provider.interface.ts. Currently bound to Daytona;
+    // E2bProvider (providers/e2b.provider.ts) implements the same
+    // interface and can be swapped in here if needed later.
+    { provide: 'ISandboxProvider', useClass: DaytonaProvider },
   ],
   exports: [SandboxService],
 })

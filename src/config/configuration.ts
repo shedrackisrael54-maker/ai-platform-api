@@ -23,6 +23,10 @@ export default () => ({
     apiKey: process.env.E2B_API_KEY,
   },
 
+  daytona: {
+    apiKey: process.env.DAYTONA_API_KEY,
+  },
+
   github: {
     appId: process.env.GITHUB_APP_ID,
     privateKey: process.env.GITHUB_APP_PRIVATE_KEY,
