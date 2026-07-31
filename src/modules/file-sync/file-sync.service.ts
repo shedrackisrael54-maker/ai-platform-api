@@ -1,42 +1,96 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { SupabaseClient } from '@supabase/supabase-js';
+import { SUPABASE_ADMIN_CLIENT } from '../../supabase/supabase.module';
+import { ProjectsService } from '../projects/projects.service';
 
 /**
- * Reconciles three representations of project state that must never
- * silently diverge: the live sandbox filesystem, the GitHub repo, and
- * the version metadata in Postgres. Both AI-driven edits and manual
- * user edits flow through this service.
+ * Reconciles project file state. Milestone 2 scope: files live in
+ * the `project_files` table (populated by AiOrchestratorService at
+ * generation time) since there's no sandbox yet. Once the sandbox
+ * exists (Milestone 3) and Git sync lands (Milestone 7), writes here
+ * will fan out to those too - this table then becomes a fast local
+ * cache rather than the only copy.
  */
 @Injectable()
 export class FileSyncService {
-  async getTree(_userId: string, _projectId: string) {
-    throw new Error('Not implemented');
+  constructor(
+    @Inject(SUPABASE_ADMIN_CLIENT) private readonly supabase: SupabaseClient,
+    private readonly projectsService: ProjectsService,
+  ) {}
+
+  async getTree(userId: string, projectId: string) {
+    // Throws NotFound/Forbidden if the user doesn't own this project.
+    await this.projectsService.getById(userId, projectId);
+
+    const { data, error } = await this.supabase
+      .from('project_files')
+      .select('path, updated_at')
+      .eq('project_id', projectId)
+      .order('path', { ascending: true });
+
+    if (error) throw error;
+    return data.map((f) => ({ path: f.path, isDirectory: false, updatedAt: f.updated_at }));
   }
 
-  async readFile(_userId: string, _projectId: string, _path: string) {
-    throw new Error('Not implemented');
+  async readFile(userId: string, projectId: string, path: string) {
+    await this.projectsService.getById(userId, projectId);
+
+    const { data, error } = await this.supabase
+      .from('project_files')
+      .select('path, content, updated_at')
+      .eq('project_id', projectId)
+      .eq('path', path)
+      .single();
+
+    if (error || !data) throw new NotFoundException('File not found');
+    return data;
   }
 
   async writeFile(
-    _userId: string,
-    _projectId: string,
-    _path: string,
-    _content: string,
+    userId: string,
+    projectId: string,
+    path: string,
+    content: string,
   ) {
-    // TODO: write to sandbox (if running), commit to GitHub, update
-    // project_versions.
-    throw new Error('Not implemented');
+    await this.projectsService.getById(userId, projectId);
+
+    const { data, error } = await this.supabase
+      .from('project_files')
+      .upsert(
+        { project_id: projectId, path, content, updated_at: new Date().toISOString() },
+        { onConflict: 'project_id,path' },
+      )
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
   }
 
   async createEntry(
-    _userId: string,
-    _projectId: string,
-    _path: string,
-    _isDirectory: boolean,
+    userId: string,
+    projectId: string,
+    path: string,
+    isDirectory: boolean,
   ) {
-    throw new Error('Not implemented');
+    if (isDirectory) {
+      // No real concept of empty directories in this flat table yet;
+      // directories are implied by file paths. Nothing to persist.
+      return { path, isDirectory: true };
+    }
+    return this.writeFile(userId, projectId, path, '');
   }
 
-  async deleteFile(_userId: string, _projectId: string, _path: string) {
-    throw new Error('Not implemented');
+  async deleteFile(userId: string, projectId: string, path: string) {
+    await this.projectsService.getById(userId, projectId);
+
+    const { error } = await this.supabase
+      .from('project_files')
+      .delete()
+      .eq('project_id', projectId)
+      .eq('path', path);
+
+    if (error) throw error;
+    return { success: true };
   }
 }
