@@ -1,4 +1,4 @@
-import { Inject, Injectable, InternalServerErrorException } from '@nestjs/common';
+import { Inject, Injectable, InternalServerErrorException, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
 import { SupabaseClient } from '@supabase/supabase-js';
@@ -10,6 +10,7 @@ import {
   EDIT_PROJECT_SYSTEM_PROMPT,
 } from './prompt-templates/system-prompt';
 import { validateGeneratedFiles, validateEditOperations } from './file-op-parser';
+import { GithubService } from '../github/github.service';
 
 /**
  * Owns all LLM-specific logic: prompt construction, OpenAI calls,
@@ -23,11 +24,13 @@ import { validateGeneratedFiles, validateEditOperations } from './file-op-parser
  */
 @Injectable()
 export class AiOrchestratorService {
+  private readonly logger = new Logger(AiOrchestratorService.name);
   private readonly openai: OpenAI;
 
   constructor(
     private readonly config: ConfigService,
     @Inject(SUPABASE_ADMIN_CLIENT) private readonly supabase: SupabaseClient,
+    private readonly githubService: GithubService,
   ) {
     const apiKey = this.config.get<string>('openai.apiKey');
     this.openai = new OpenAI({ apiKey });
@@ -104,7 +107,30 @@ export class AiOrchestratorService {
       );
     }
 
+    await this.commitToGithub(projectId, files, 'Initial generation');
+
     return { summary: parsedArgs.summary, fileCount: files.length };
+  }
+
+  /**
+   * Commits to the project's GitHub repo without letting a GitHub
+   * failure break the generate/edit flow itself - GitHub sync is a
+   * durability nice-to-have here, not a hard requirement for the
+   * user to see their generated app. Logs a warning and moves on if
+   * it's not configured or fails.
+   */
+  private async commitToGithub(
+    projectId: string,
+    files: { path: string; content: string }[],
+    message: string,
+  ) {
+    try {
+      await this.githubService.commitFiles(projectId, files, message);
+    } catch (err) {
+      this.logger.warn(
+        `GitHub commit skipped for project ${projectId}: ${err instanceof Error ? err.message : err}`,
+      );
+    }
   }
 
   /**
@@ -195,6 +221,7 @@ export class AiOrchestratorService {
     const operations = validateEditOperations(parsedArgs.operations, existingPaths);
 
     const changedFiles: string[] = [];
+    const filesToCommit: { path: string; content: string }[] = [];
     for (const op of operations) {
       if (op.type === 'delete_file') {
         const { error } = await this.supabase
@@ -203,6 +230,10 @@ export class AiOrchestratorService {
           .eq('project_id', projectId)
           .eq('path', op.path);
         if (error) throw error;
+        // Note: deletions aren't mirrored to GitHub yet - the file
+        // stays in repo history/HEAD until a future full-tree sync.
+        // Not ideal, but doesn't block the user from seeing the
+        // (correct) result in the app.
       } else {
         const { error } = await this.supabase.from('project_files').upsert(
           {
@@ -214,8 +245,13 @@ export class AiOrchestratorService {
           { onConflict: 'project_id,path' },
         );
         if (error) throw error;
+        filesToCommit.push({ path: op.path, content: op.content! });
       }
       changedFiles.push(op.path);
+    }
+
+    if (filesToCommit.length > 0) {
+      await this.commitToGithub(projectId, filesToCommit, parsedArgs.summary);
     }
 
     await this.supabase.from('chat_messages').insert({

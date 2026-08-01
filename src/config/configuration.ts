@@ -28,6 +28,7 @@ export default () => ({
   },
 
   github: {
+    token: process.env.GITHUB_TOKEN,
     appId: process.env.GITHUB_APP_ID,
     privateKey: process.env.GITHUB_APP_PRIVATE_KEY,
     installationId: process.env.GITHUB_APP_INSTALLATION_ID,

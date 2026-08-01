@@ -10,6 +10,7 @@ import { SUPABASE_ADMIN_CLIENT } from '../../supabase/supabase.module';
 import { CreateProjectDto } from './entities/create-project.dto';
 import { UpdateProjectDto } from './entities/update-project.dto';
 import { AiOrchestratorService } from '../ai/ai-orchestrator.service';
+import { GithubService } from '../github/github.service';
 
 @Injectable()
 export class ProjectsService {
@@ -18,6 +19,7 @@ export class ProjectsService {
   constructor(
     @Inject(SUPABASE_ADMIN_CLIENT) private readonly supabase: SupabaseClient,
     private readonly aiOrchestrator: AiOrchestratorService,
+    private readonly githubService: GithubService,
   ) {}
 
   async listForUser(userId: string) {
@@ -127,17 +129,13 @@ export class ProjectsService {
 
   async listVersions(userId: string, projectId: string) {
     await this.getById(userId, projectId);
-    // Version history depends on the GitHub sync flow (Milestone M7).
-    // Returning an empty list is the correct M1 behavior rather than
-    // faking data.
-    return [];
+    return this.githubService.listCommits(projectId);
   }
 
-  async restoreVersion(
-    _userId: string,
-    _projectId: string,
-    _versionId: string,
-  ) {
-    throw new Error('Not implemented until Milestone M7 (GitHub sync)');
+  async restoreVersion(userId: string, projectId: string, versionId: string) {
+    await this.getById(userId, projectId);
+    // versionId is the commit SHA here (see listVersions/listCommits).
+    await this.githubService.restoreCommit(projectId, versionId);
+    return { success: true };
   }
 }
