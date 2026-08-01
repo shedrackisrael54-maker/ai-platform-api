@@ -12,16 +12,6 @@ import {
 import { validateGeneratedFiles, validateEditOperations } from './file-op-parser';
 import { GithubService } from '../github/github.service';
 
-/**
- * Owns all LLM-specific logic: prompt construction, OpenAI calls,
- * parsing structured file-operation output, and handing validated
- * operations off to storage. Nothing outside this service should
- * construct prompts or touch the OpenAI SDK directly.
- *
- * Milestone 2 scope: single-shot generation only (prompt -> files,
- * stored directly via Supabase). Chat-based iterative editing and
- * sandbox application are Milestone 5.
- */
 @Injectable()
 export class AiOrchestratorService {
   private readonly logger = new Logger(AiOrchestratorService.name);
@@ -36,17 +26,10 @@ export class AiOrchestratorService {
     this.openai = new OpenAI({ apiKey });
   }
 
-  /**
-   * Generates the initial file set for a brand-new project from the
-   * user's prompt, validates the model's output, and persists it to
-   * the project_files table. Called synchronously from
-   * ProjectsService.createFromPrompt for Milestone 2; Milestone 3+
-   * will move this behind a queued job once sandbox application and
-   * build-log streaming are involved.
-   */
   async generateInitialProject(
     projectId: string,
     prompt: string,
+    imageBase64?: string,
   ): Promise<{ summary: string; fileCount: number }> {
     const apiKey = this.config.get<string>('openai.apiKey');
     if (!apiKey) {
@@ -55,13 +38,15 @@ export class AiOrchestratorService {
       );
     }
 
+    const userContent = this.buildUserContent(prompt, imageBase64);
+
     let completion;
     try {
       completion = await this.openai.chat.completions.create({
         model: 'gpt-4o-mini',
         messages: [
           { role: 'system', content: GENERATE_PROJECT_SYSTEM_PROMPT },
-          { role: 'user', content: prompt },
+          { role: 'user', content: userContent },
         ],
         tools: [GENERATE_PROJECT_TOOL],
         tool_choice: {
@@ -89,9 +74,6 @@ export class AiOrchestratorService {
       throw new InternalServerErrorException('Model returned malformed JSON');
     }
 
-    // Validation boundary: everything above this line is untrusted
-    // model output. Nothing below should be reached with data that
-    // hasn't passed validateGeneratedFiles.
     const files = validateGeneratedFiles(parsedArgs.files);
 
     const rows = files.map((f) => ({
@@ -112,13 +94,30 @@ export class AiOrchestratorService {
     return { summary: parsedArgs.summary, fileCount: files.length };
   }
 
-  /**
-   * Commits to the project's GitHub repo without letting a GitHub
-   * failure break the generate/edit flow itself - GitHub sync is a
-   * durability nice-to-have here, not a hard requirement for the
-   * user to see their generated app. Logs a warning and moves on if
-   * it's not configured or fails.
-   */
+  private buildUserContent(
+    prompt: string,
+    imageBase64?: string,
+  ): string | OpenAI.Chat.Completions.ChatCompletionContentPart[] {
+    if (!imageBase64) {
+      return prompt;
+    }
+
+    const dataUri = imageBase64.startsWith('data:')
+      ? imageBase64
+      : `data:image/jpeg;base64,${imageBase64}`;
+
+    return [
+      {
+        type: 'text',
+        text: `${prompt}\n\nMatch the attached design image as closely as possible: layout, colors, spacing, and components.`,
+      },
+      {
+        type: 'image_url',
+        image_url: { url: dataUri },
+      },
+    ];
+  }
+
   private async commitToGithub(
     projectId: string,
     files: { path: string; content: string }[],
@@ -133,18 +132,6 @@ export class AiOrchestratorService {
     }
   }
 
-  /**
-   * Applies a user's requested change to an existing project: fetches
-   * current files as context, asks OpenAI what needs to change,
-   * validates the response, and applies it to project_files.
-   *
-   * Note: if a sandbox is currently running for this project, it
-   * will keep serving the pre-edit version until it's restarted
-   * (createSandbox reuses a running sandbox rather than
-   * re-uploading files into it). Stopping and starting the sandbox
-   * again picks up the change. Live-syncing a running sandbox
-   * in-place is a reasonable follow-up once this is validated.
-   */
   async applyChatEdit(
     projectId: string,
     userMessage: string,
@@ -216,8 +203,6 @@ export class AiOrchestratorService {
       throw new InternalServerErrorException('Model returned malformed JSON');
     }
 
-    // Validation boundary: everything above this line is untrusted
-    // model output.
     const operations = validateEditOperations(parsedArgs.operations, existingPaths);
 
     const changedFiles: string[] = [];
@@ -230,10 +215,6 @@ export class AiOrchestratorService {
           .eq('project_id', projectId)
           .eq('path', op.path);
         if (error) throw error;
-        // Note: deletions aren't mirrored to GitHub yet - the file
-        // stays in repo history/HEAD until a future full-tree sync.
-        // Not ideal, but doesn't block the user from seeing the
-        // (correct) result in the app.
       } else {
         const { error } = await this.supabase.from('project_files').upsert(
           {
