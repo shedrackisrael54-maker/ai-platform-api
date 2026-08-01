@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsString, MaxLength } from 'class-validator';
+import { IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
 
 export class CreateProjectDto {
   @IsString()
@@ -10,4 +10,8 @@ export class CreateProjectDto {
   @IsNotEmpty()
   @MaxLength(4000)
   prompt: string;
+
+  @IsOptional()
+  @IsString()
+  imageBase64?: string;
 }
