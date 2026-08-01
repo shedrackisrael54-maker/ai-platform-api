@@ -113,7 +113,7 @@ export class AiOrchestratorService {
       },
       {
         type: 'image_url',
-        image_url: { url: dataUri },
+        image_url: { url: dataUri, detail: 'high' },
       },
     ];
   }
