@@ -34,12 +34,6 @@ export class ProjectsService {
   }
 
   async createFromPrompt(userId: string, dto: CreateProjectDto) {
-    // Milestone 2 scope: generation runs synchronously in the request
-    // for now (single-shot, no sandbox/build yet). Once sandbox
-    // application and streamed build logs matter (Milestone 3+),
-    // this moves behind the `ai-generation` queue job instead, and
-    // this method goes back to just inserting a 'draft' row and
-    // returning a jobId immediately.
     const { data: project, error } = await this.supabase
       .from('projects')
       .insert({
@@ -57,6 +51,7 @@ export class ProjectsService {
       const result = await this.aiOrchestrator.generateInitialProject(
         project.id,
         dto.prompt,
+        dto.imageBase64,
       );
 
       const { data: updated, error: updateError } = await this.supabase
@@ -70,9 +65,6 @@ export class ProjectsService {
 
       return { ...updated, generationSummary: result.summary, fileCount: result.fileCount };
     } catch (err) {
-      // Generation failed - leave the project row in place (as
-      // 'draft') rather than silently deleting it, so the user can
-      // see what happened and we can add a retry path later.
       this.logger.error(
         `AI generation failed for project ${project.id}: ${err instanceof Error ? err.message : err}`,
       );
@@ -100,8 +92,6 @@ export class ProjectsService {
   }
 
   async update(userId: string, projectId: string, dto: UpdateProjectDto) {
-    // Ownership check first so we never leak existence of another
-    // user's project via a permissive update.
     await this.getById(userId, projectId);
 
     const { data, error } = await this.supabase
@@ -134,7 +124,6 @@ export class ProjectsService {
 
   async restoreVersion(userId: string, projectId: string, versionId: string) {
     await this.getById(userId, projectId);
-    // versionId is the commit SHA here (see listVersions/listCommits).
     await this.githubService.restoreCommit(projectId, versionId);
     return { success: true };
   }
