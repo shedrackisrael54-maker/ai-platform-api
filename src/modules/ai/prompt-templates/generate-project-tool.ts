@@ -16,6 +16,19 @@ export const GENERATE_PROJECT_TOOL: ChatCompletionTool = {
     parameters: {
       type: 'object',
       properties: {
+        designPlan: {
+          type: 'string',
+          description:
+            'Written BEFORE any files, in this order: (1) app category and its ' +
+            'typical design language (e.g. plant care = natural/organic/image-led, ' +
+            'finance = minimal/trustworthy, fitness = bold/energetic, ecommerce = ' +
+            'conversion-focused product presentation), (2) the target user and the ' +
+            'single most important piece of information on the main screen, (3) if a ' +
+            'design reference image was provided, a description of its concrete ' +
+            'layout, color palette, spacing, and component choices to match - not just ' +
+            'its general theme, (4) the color palette, type scale, spacing unit, and ' +
+            'border-radius/shadow style you will use consistently across every file.',
+        },
         summary: {
           type: 'string',
           description: 'One or two sentences describing what was built.',
@@ -40,7 +53,7 @@ export const GENERATE_PROJECT_TOOL: ChatCompletionTool = {
           },
         },
       },
-      required: ['summary', 'files'],
+      required: ['designPlan', 'summary', 'files'],
     },
   },
 };
