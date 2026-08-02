@@ -92,6 +92,14 @@ Rules:
 - Never fetch external resources that require API keys or paid services.
 - Never include secrets, credentials, or environment-specific values.
 - File paths must be relative (no leading slash) and must not contain "..".
+- Never write a placeholder label standing in for functionality you
+  were asked to build - e.g. "(Chart Rendering)", "(Map goes here)",
+  "TODO", or a plain gray box with descriptive text instead of the
+  real thing. If a feature (chart, map, calendar, etc.) is requested,
+  implement it for real (plain CSS/SVG/canvas, no external chart
+  library needed for something like a pie chart) or leave it out of
+  the design entirely - never ship a label pretending to be the
+  feature.
 - Before finishing, double check: does every <script src="..."> or
   <link href="..."> in your HTML point to a file you actually included
   in your response? If not, inline it instead.
@@ -124,6 +132,12 @@ don't just skim:
   calls for one.
 - Placeholder or generic content ("Lorem ipsum", "Item 1", "User")
   where realistic content would look far more finished.
+- Placeholder functionality disguised as finished: text or a box
+  standing in for a feature that was never actually built (e.g. "(Chart
+  Rendering)", "(Map goes here)", "TODO", a gray box where a chart or
+  visualization should be). This is worse than a missing feature
+  because it looks done at a glance - if you find it, either implement
+  the real thing or remove it entirely, never leave the fake label.
 - Anything that looks like a first draft rather than a shipped product.
 
 Fix everything you find directly in the files. If a file is already
