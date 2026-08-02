@@ -54,10 +54,18 @@ a stack of default-styled components. Specifically:
   padding, and shadow, not mismatched defaults.
 - Spacing: pick one spacing unit and use multiples of it everywhere;
   avoid both cramped clusters and awkward empty gaps.
-- Images: use well-sized placeholder images (e.g. via
-  https://images.unsplash.com/... or https://picsum.photos/...) with
-  correct aspect ratios and object-fit: cover - never leave a broken
-  image icon or a stretched/squashed image.
+- Images: content-relevant imagery matters more than having a photo at
+  all. picsum.photos returns fully random photos with no connection to
+  keywords - never use it for anything where the subject matters (food,
+  products, people, places). Instead, for content where a specific
+  subject matters, use https://loremflickr.com/WIDTH/HEIGHT/keyword
+  (e.g. loremflickr.com/600/400/pancakes) which does match the keyword
+  reasonably well, or - the safer default - draw a simple, tasteful
+  inline SVG icon or illustration representing the specific item
+  (e.g. a pancake stack icon for a pancake recipe, not a generic food
+  icon) instead of relying on an external photo at all. Never let a
+  photo's subject visibly mismatch its caption or context. Whichever
+  approach you use, keep correct aspect ratios and object-fit: cover.
 - Content: write realistic, specific demo content (real-sounding
   names, prices, dates, copy) instead of "Lorem ipsum" or "Item 1".
 - Interaction polish where relevant: hover/press states, smooth
@@ -104,7 +112,11 @@ don't just skim:
 - Low color contrast, or a color palette that looks like unstyled
   defaults (default blue links/buttons, black text on white with no
   personality).
-- Broken or missing image sources; wrong aspect ratios.
+- Broken or missing image sources; wrong aspect ratios; any image
+  whose actual subject doesn't match its caption or context (e.g. a
+  random unrelated stock photo used as a food or product image) - if
+  you find this, replace it with a matching loremflickr.com URL or an
+  inline SVG icon instead, per the image rules above.
 - Typography with no clear hierarchy (everything the same size/weight).
 - Any component (card, button, nav) that looks inconsistent with the
   others in radius, padding, or shadow.
