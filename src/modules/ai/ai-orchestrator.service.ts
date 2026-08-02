@@ -8,6 +8,7 @@ import { EDIT_PROJECT_TOOL } from './prompt-templates/edit-project-tool';
 import {
   GENERATE_PROJECT_SYSTEM_PROMPT,
   EDIT_PROJECT_SYSTEM_PROMPT,
+  REVIEW_PROJECT_SYSTEM_PROMPT,
 } from './prompt-templates/system-prompt';
 import { validateGeneratedFiles, validateEditOperations } from './file-op-parser';
 import { GithubService } from '../github/github.service';
@@ -67,7 +68,7 @@ export class AiOrchestratorService {
       );
     }
 
-    let parsedArgs: { summary: string; files: unknown };
+    let parsedArgs: { designPlan: string; summary: string; files: unknown };
     try {
       parsedArgs = JSON.parse(toolCall.function.arguments);
     } catch {
@@ -75,8 +76,9 @@ export class AiOrchestratorService {
     }
 
     const files = validateGeneratedFiles(parsedArgs.files);
+    const reviewedFiles = await this.reviewFiles(files, parsedArgs.designPlan);
 
-    const rows = files.map((f) => ({
+    const rows = reviewedFiles.map((f) => ({
       project_id: projectId,
       path: f.path,
       content: f.content,
@@ -89,9 +91,63 @@ export class AiOrchestratorService {
       );
     }
 
-    await this.commitToGithub(projectId, files, 'Initial generation');
+    await this.commitToGithub(projectId, reviewedFiles, 'Initial generation');
 
-    return { summary: parsedArgs.summary, fileCount: files.length };
+    return { summary: parsedArgs.summary, fileCount: reviewedFiles.length };
+  }
+
+  /**
+   * Second AI pass: shows the just-generated files back to the model
+   * as a strict design reviewer and asks it to catch and fix quality
+   * issues a first pass tends to miss (spacing, contrast, overlap,
+   * generic placeholder content, etc). Roughly doubles generation
+   * cost and latency, so it only runs once per initial generation,
+   * not on every chat edit.
+   *
+   * Fails soft: if the review call errors or returns something that
+   * doesn't validate, we log a warning and fall back to the
+   * unreviewed files rather than failing the whole generation.
+   */
+  private async reviewFiles(
+    files: { path: string; content: string }[],
+    designPlan: string,
+  ): Promise<{ path: string; content: string }[]> {
+    try {
+      const filesContext = files
+        .map((f) => `--- ${f.path} ---\n${f.content}`)
+        .join('\n\n');
+
+      const completion = await this.openai.chat.completions.create({
+        model: 'gpt-4o-mini',
+        messages: [
+          { role: 'system', content: REVIEW_PROJECT_SYSTEM_PROMPT },
+          {
+            role: 'user',
+            content: `Original design plan:\n${designPlan}\n\nGenerated files:\n\n${filesContext}`,
+          },
+        ],
+        tools: [GENERATE_PROJECT_TOOL],
+        tool_choice: {
+          type: 'function',
+          function: { name: 'create_project_files' },
+        },
+      });
+
+      const toolCall = completion.choices[0]?.message?.tool_calls?.[0];
+      if (!toolCall || toolCall.function.name !== 'create_project_files') {
+        this.logger.warn('Review pass returned no tool call, keeping original files');
+        return files;
+      }
+
+      const parsed = JSON.parse(toolCall.function.arguments);
+      const reviewed = validateGeneratedFiles(parsed.files);
+      return reviewed.length > 0 ? reviewed : files;
+    } catch (err) {
+      this.logger.warn(
+        `Review pass failed, keeping original files: ${err instanceof Error ? err.message : err}`,
+      );
+      return files;
+    }
   }
 
   private buildUserContent(
